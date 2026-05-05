@@ -1,5 +1,10 @@
 import { useEffect, useRef, useState } from 'react'
-import { Engine, type EngineLatency, type AmpEnvelope } from './audio/engine'
+import {
+  Engine,
+  type EngineLatency,
+  type AmpEnvelope,
+  type FilterSettings,
+} from './audio/engine'
 import { KeyboardInput, type MidiNote } from './input/keyboard'
 import { Knob } from './ui/Knob'
 
@@ -15,11 +20,21 @@ function formatTime(s: number): string {
   return `${s.toFixed(2)} s`
 }
 
+function formatHz(hz: number): string {
+  if (hz >= 1000) return `${(hz / 1000).toFixed(hz >= 10000 ? 1 : 2)} kHz`
+  return `${hz.toFixed(0)} Hz`
+}
+
 const DEFAULT_AMP: AmpEnvelope = {
   attackS: 0.005,
   decayS: 0.15,
   sustain: 0.7,
   releaseS: 0.2,
+}
+
+const DEFAULT_FILTER: FilterSettings = {
+  cutoffHz: 1500,
+  resonance: 0.2,
 }
 
 export function App() {
@@ -28,6 +43,7 @@ export function App() {
   const [octave, setOctave] = useState(4)
   const [held, setHeld] = useState<readonly MidiNote[]>([])
   const [amp, setAmp] = useState<AmpEnvelope>(DEFAULT_AMP)
+  const [filter, setFilter] = useState<FilterSettings>(DEFAULT_FILTER)
   const [latency, setLatency] = useState<EngineLatency | null>(null)
   const [error, setError] = useState<string | null>(null)
 
@@ -39,6 +55,7 @@ export function App() {
       .init()
       .then(() => {
         engine.setAmpEnvelope(DEFAULT_AMP)
+        engine.setFilter(DEFAULT_FILTER)
         setLatency(engine.getLatency())
       })
       .catch((e) => setError(e instanceof Error ? e.message : String(e)))
@@ -80,52 +97,80 @@ export function App() {
     engineRef.current?.setAmpEnvelope(amp)
   }, [amp])
 
+  useEffect(() => {
+    engineRef.current?.setFilter(filter)
+  }, [filter])
+
   return (
     <main className="min-h-full flex items-center justify-center p-8">
-      <div className="flex flex-col items-center gap-6 max-w-2xl text-center">
+      <div className="flex flex-col items-center gap-6 max-w-3xl text-center">
         <h1 className="text-2xl font-medium tracking-tight">Synth</h1>
 
-        <Panel title="Amp envelope">
-          <Knob
-            label="A"
-            value={amp.attackS}
-            min={0}
-            max={5}
-            defaultValue={DEFAULT_AMP.attackS}
-            curve="exp"
-            format={formatTime}
-            onChange={(attackS) => setAmp((a) => ({ ...a, attackS }))}
-          />
-          <Knob
-            label="D"
-            value={amp.decayS}
-            min={0}
-            max={5}
-            defaultValue={DEFAULT_AMP.decayS}
-            curve="exp"
-            format={formatTime}
-            onChange={(decayS) => setAmp((a) => ({ ...a, decayS }))}
-          />
-          <Knob
-            label="S"
-            value={amp.sustain}
-            min={0}
-            max={1}
-            defaultValue={DEFAULT_AMP.sustain}
-            format={(v) => v.toFixed(2)}
-            onChange={(sustain) => setAmp((a) => ({ ...a, sustain }))}
-          />
-          <Knob
-            label="R"
-            value={amp.releaseS}
-            min={0}
-            max={5}
-            defaultValue={DEFAULT_AMP.releaseS}
-            curve="exp"
-            format={formatTime}
-            onChange={(releaseS) => setAmp((a) => ({ ...a, releaseS }))}
-          />
-        </Panel>
+        <div className="flex flex-wrap gap-4 justify-center">
+          <Panel title="Filter">
+            <Knob
+              label="Cutoff"
+              value={filter.cutoffHz}
+              min={20}
+              max={20000}
+              defaultValue={DEFAULT_FILTER.cutoffHz}
+              curve="exp"
+              format={formatHz}
+              onChange={(cutoffHz) => setFilter((f) => ({ ...f, cutoffHz }))}
+            />
+            <Knob
+              label="Reso"
+              value={filter.resonance}
+              min={0}
+              max={1}
+              defaultValue={DEFAULT_FILTER.resonance}
+              format={(v) => v.toFixed(2)}
+              onChange={(resonance) => setFilter((f) => ({ ...f, resonance }))}
+            />
+          </Panel>
+
+          <Panel title="Amp envelope">
+            <Knob
+              label="A"
+              value={amp.attackS}
+              min={0}
+              max={5}
+              defaultValue={DEFAULT_AMP.attackS}
+              curve="exp"
+              format={formatTime}
+              onChange={(attackS) => setAmp((a) => ({ ...a, attackS }))}
+            />
+            <Knob
+              label="D"
+              value={amp.decayS}
+              min={0}
+              max={5}
+              defaultValue={DEFAULT_AMP.decayS}
+              curve="exp"
+              format={formatTime}
+              onChange={(decayS) => setAmp((a) => ({ ...a, decayS }))}
+            />
+            <Knob
+              label="S"
+              value={amp.sustain}
+              min={0}
+              max={1}
+              defaultValue={DEFAULT_AMP.sustain}
+              format={(v) => v.toFixed(2)}
+              onChange={(sustain) => setAmp((a) => ({ ...a, sustain }))}
+            />
+            <Knob
+              label="R"
+              value={amp.releaseS}
+              min={0}
+              max={5}
+              defaultValue={DEFAULT_AMP.releaseS}
+              curve="exp"
+              format={formatTime}
+              onChange={(releaseS) => setAmp((a) => ({ ...a, releaseS }))}
+            />
+          </Panel>
+        </div>
 
         <p className="text-sm text-neutral-400 max-w-md">
           Type to play. <kbd className="font-mono">zsxdcvgbhnjm,l.</kbd> = chromatic

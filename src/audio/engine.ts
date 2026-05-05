@@ -14,6 +14,13 @@ export interface AmpEnvelope {
   releaseS: number
 }
 
+export interface FilterSettings {
+  cutoffHz: number
+  resonance: number
+}
+
+const PARAM_SMOOTH_S = 0.005
+
 export class Engine {
   private ctx: AudioContext | null = null
   private node: AudioWorkletNode | null = null
@@ -63,6 +70,13 @@ export class Engine {
     this.node.parameters.get('decay')?.setValueAtTime(env.decayS, t)
     this.node.parameters.get('sustain')?.setValueAtTime(env.sustain, t)
     this.node.parameters.get('release')?.setValueAtTime(env.releaseS, t)
+  }
+
+  setFilter(f: FilterSettings): void {
+    if (!this.node || !this.ctx) return
+    const t = this.ctx.currentTime
+    this.node.parameters.get('cutoff')?.setTargetAtTime(f.cutoffHz, t, PARAM_SMOOTH_S)
+    this.node.parameters.get('resonance')?.setTargetAtTime(f.resonance, t, PARAM_SMOOTH_S)
   }
 
   getLatency(): EngineLatency | null {
