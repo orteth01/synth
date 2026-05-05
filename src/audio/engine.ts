@@ -19,6 +19,14 @@ export interface FilterSettings {
   resonance: number
 }
 
+export interface FilterEnvelope {
+  attackS: number
+  decayS: number
+  sustain: number
+  releaseS: number
+  envAmount: number
+}
+
 const PARAM_SMOOTH_S = 0.005
 
 export class Engine {
@@ -77,6 +85,16 @@ export class Engine {
     const t = this.ctx.currentTime
     this.node.parameters.get('cutoff')?.setTargetAtTime(f.cutoffHz, t, PARAM_SMOOTH_S)
     this.node.parameters.get('resonance')?.setTargetAtTime(f.resonance, t, PARAM_SMOOTH_S)
+  }
+
+  setFilterEnvelope(env: FilterEnvelope): void {
+    if (!this.node || !this.ctx) return
+    const t = this.ctx.currentTime
+    this.node.parameters.get('fAttack')?.setValueAtTime(env.attackS, t)
+    this.node.parameters.get('fDecay')?.setValueAtTime(env.decayS, t)
+    this.node.parameters.get('fSustain')?.setValueAtTime(env.sustain, t)
+    this.node.parameters.get('fRelease')?.setValueAtTime(env.releaseS, t)
+    this.node.parameters.get('fEnvAmount')?.setTargetAtTime(env.envAmount, t, PARAM_SMOOTH_S)
   }
 
   getLatency(): EngineLatency | null {

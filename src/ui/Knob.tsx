@@ -7,6 +7,7 @@ export interface KnobProps {
   max: number
   defaultValue?: number
   curve?: 'linear' | 'exp'
+  bipolar?: boolean
   format?: (v: number) => string
   onChange: (v: number) => void
   size?: number
@@ -47,6 +48,7 @@ export function Knob({
   max,
   defaultValue,
   curve = 'linear',
+  bipolar = false,
   format,
   onChange,
   size = 56,
@@ -97,10 +99,23 @@ export function Knob({
   const trackEndX = r * Math.cos(endRad)
   const trackEndY = r * Math.sin(endRad)
 
-  const valueRad = (ANGLE_START_DEG + normalized * ANGLE_RANGE_DEG - 90) * (Math.PI / 180)
+  const valueAngleDeg = ANGLE_START_DEG + normalized * ANGLE_RANGE_DEG
+  const valueRad = (valueAngleDeg - 90) * (Math.PI / 180)
   const valueEndX = r * Math.cos(valueRad)
   const valueEndY = r * Math.sin(valueRad)
-  const largeArc = normalized * ANGLE_RANGE_DEG > 180 ? 1 : 0
+
+  // Bipolar arcs originate at 12 o'clock and sweep either way; unipolar arcs
+  // originate at the bottom-left start of the track.
+  const arcOriginAngleDeg = bipolar ? 0 : ANGLE_START_DEG
+  const arcOriginRad = (arcOriginAngleDeg - 90) * (Math.PI / 180)
+  const arcOriginX = r * Math.cos(arcOriginRad)
+  const arcOriginY = r * Math.sin(arcOriginRad)
+  const sweepDelta = valueAngleDeg - arcOriginAngleDeg
+  const sweepFlag = sweepDelta >= 0 ? 1 : 0
+  const largeArc = Math.abs(sweepDelta) > 180 ? 1 : 0
+  const valueArcVisible = bipolar
+    ? Math.abs(normalized - 0.5) > 0.005
+    : normalized > 0
 
   return (
     <div className="flex flex-col items-center gap-1 select-none">
@@ -129,9 +144,9 @@ export function Knob({
           strokeWidth={3}
           strokeLinecap="round"
         />
-        {normalized > 0 && (
+        {valueArcVisible && (
           <path
-            d={`M ${trackStartX} ${trackStartY} A ${r} ${r} 0 ${largeArc} 1 ${valueEndX} ${valueEndY}`}
+            d={`M ${arcOriginX} ${arcOriginY} A ${r} ${r} 0 ${largeArc} ${sweepFlag} ${valueEndX} ${valueEndY}`}
             fill="none"
             stroke="#e8e8ea"
             strokeWidth={3}

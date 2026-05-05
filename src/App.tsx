@@ -4,6 +4,7 @@ import {
   type EngineLatency,
   type AmpEnvelope,
   type FilterSettings,
+  type FilterEnvelope,
 } from './audio/engine'
 import { KeyboardInput, type MidiNote } from './input/keyboard'
 import { Knob } from './ui/Knob'
@@ -25,6 +26,11 @@ function formatHz(hz: number): string {
   return `${hz.toFixed(0)} Hz`
 }
 
+function formatSigned(v: number): string {
+  const sign = v > 0 ? '+' : ''
+  return `${sign}${v.toFixed(2)}`
+}
+
 const DEFAULT_AMP: AmpEnvelope = {
   attackS: 0.005,
   decayS: 0.15,
@@ -33,8 +39,16 @@ const DEFAULT_AMP: AmpEnvelope = {
 }
 
 const DEFAULT_FILTER: FilterSettings = {
-  cutoffHz: 1500,
-  resonance: 0.2,
+  cutoffHz: 800,
+  resonance: 0.3,
+}
+
+const DEFAULT_FILTER_ENV: FilterEnvelope = {
+  attackS: 0.01,
+  decayS: 0.4,
+  sustain: 0,
+  releaseS: 0.3,
+  envAmount: 0.5,
 }
 
 export function App() {
@@ -44,6 +58,7 @@ export function App() {
   const [held, setHeld] = useState<readonly MidiNote[]>([])
   const [amp, setAmp] = useState<AmpEnvelope>(DEFAULT_AMP)
   const [filter, setFilter] = useState<FilterSettings>(DEFAULT_FILTER)
+  const [filterEnv, setFilterEnv] = useState<FilterEnvelope>(DEFAULT_FILTER_ENV)
   const [latency, setLatency] = useState<EngineLatency | null>(null)
   const [error, setError] = useState<string | null>(null)
 
@@ -56,6 +71,7 @@ export function App() {
       .then(() => {
         engine.setAmpEnvelope(DEFAULT_AMP)
         engine.setFilter(DEFAULT_FILTER)
+        engine.setFilterEnvelope(DEFAULT_FILTER_ENV)
         setLatency(engine.getLatency())
       })
       .catch((e) => setError(e instanceof Error ? e.message : String(e)))
@@ -101,9 +117,13 @@ export function App() {
     engineRef.current?.setFilter(filter)
   }, [filter])
 
+  useEffect(() => {
+    engineRef.current?.setFilterEnvelope(filterEnv)
+  }, [filterEnv])
+
   return (
     <main className="min-h-full flex items-center justify-center p-8">
-      <div className="flex flex-col items-center gap-6 max-w-3xl text-center">
+      <div className="flex flex-col items-center gap-6 max-w-5xl text-center">
         <h1 className="text-2xl font-medium tracking-tight">Synth</h1>
 
         <div className="flex flex-wrap gap-4 justify-center">
@@ -126,6 +146,58 @@ export function App() {
               defaultValue={DEFAULT_FILTER.resonance}
               format={(v) => v.toFixed(2)}
               onChange={(resonance) => setFilter((f) => ({ ...f, resonance }))}
+            />
+          </Panel>
+
+          <Panel title="Filter envelope">
+            <Knob
+              label="Amt"
+              value={filterEnv.envAmount}
+              min={-1}
+              max={1}
+              defaultValue={DEFAULT_FILTER_ENV.envAmount}
+              bipolar
+              format={formatSigned}
+              onChange={(envAmount) => setFilterEnv((e) => ({ ...e, envAmount }))}
+            />
+            <Knob
+              label="A"
+              value={filterEnv.attackS}
+              min={0}
+              max={5}
+              defaultValue={DEFAULT_FILTER_ENV.attackS}
+              curve="exp"
+              format={formatTime}
+              onChange={(attackS) => setFilterEnv((e) => ({ ...e, attackS }))}
+            />
+            <Knob
+              label="D"
+              value={filterEnv.decayS}
+              min={0}
+              max={5}
+              defaultValue={DEFAULT_FILTER_ENV.decayS}
+              curve="exp"
+              format={formatTime}
+              onChange={(decayS) => setFilterEnv((e) => ({ ...e, decayS }))}
+            />
+            <Knob
+              label="S"
+              value={filterEnv.sustain}
+              min={0}
+              max={1}
+              defaultValue={DEFAULT_FILTER_ENV.sustain}
+              format={(v) => v.toFixed(2)}
+              onChange={(sustain) => setFilterEnv((e) => ({ ...e, sustain }))}
+            />
+            <Knob
+              label="R"
+              value={filterEnv.releaseS}
+              min={0}
+              max={5}
+              defaultValue={DEFAULT_FILTER_ENV.releaseS}
+              curve="exp"
+              format={formatTime}
+              onChange={(releaseS) => setFilterEnv((e) => ({ ...e, releaseS }))}
             />
           </Panel>
 
