@@ -1,1 +1,1 @@
-{"root":["./src/app.tsx","./src/main.tsx","./src/audio/engine.ts"],"version":"5.9.3"}
+{"root":["./src/app.tsx","./src/main.tsx","./src/audio/engine.ts","./src/audio/dsp/polyblep.test.ts","./src/audio/dsp/polyblep.ts","./src/audio/dsp/window.ts","./src/audio/worklet/voice.worklet.ts"],"version":"5.9.3"}

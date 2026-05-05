@@ -1,11 +1,11 @@
-const WORKLET_URL = '/worklets/test-tone.js'
-const PROCESSOR_NAME = 'test-tone'
+const WORKLET_URL = '/worklets/voice.worklet.js'
+const PROCESSOR_NAME = 'voice'
 
 export class Engine {
   private ctx: AudioContext | null = null
   private node: AudioWorkletNode | null = null
 
-  async init() {
+  async init(): Promise<void> {
     const ctx = new AudioContext({ latencyHint: 'interactive' })
     await ctx.audioWorklet.addModule(WORKLET_URL)
     const node = new AudioWorkletNode(ctx, PROCESSOR_NAME, {
@@ -19,13 +19,18 @@ export class Engine {
     this.node = node
   }
 
-  setToneGain(gain: number) {
-    const param = this.node?.parameters.get('gain')
-    if (!param || !this.ctx) return
-    param.setTargetAtTime(gain, this.ctx.currentTime, 0.01)
+  noteOn(midiNote: number): void {
+    if (!this.node || !this.ctx) return
+    const freq = 440 * Math.pow(2, (midiNote - 69) / 12)
+    this.node.parameters.get('frequency')?.setValueAtTime(freq, this.ctx.currentTime)
+    this.node.port.postMessage({ type: 'noteOn' })
   }
 
-  dispose() {
+  noteOff(): void {
+    this.node?.port.postMessage({ type: 'noteOff' })
+  }
+
+  dispose(): void {
     this.node?.disconnect()
     this.node = null
     void this.ctx?.close()

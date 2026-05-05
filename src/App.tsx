@@ -1,6 +1,8 @@
 import { useEffect, useRef, useState } from 'react'
 import { Engine } from './audio/engine'
 
+const A4 = 69
+
 export function App() {
   const engineRef = useRef<Engine | null>(null)
   const [ready, setReady] = useState(false)
@@ -28,14 +30,14 @@ export function App() {
     }
   }
 
-  async function toggleTone() {
+  async function toggleNote() {
     try {
       const engine = await ensureEngine()
       if (playing) {
-        engine.setToneGain(0)
+        engine.noteOff()
         setPlaying(false)
       } else {
-        engine.setToneGain(0.2)
+        engine.noteOn(A4)
         setPlaying(true)
       }
     } catch {
@@ -48,13 +50,13 @@ export function App() {
       <div className="flex flex-col items-center gap-4">
         <h1 className="text-2xl font-medium tracking-tight">Synth</h1>
         <p className="text-sm text-neutral-400">
-          Step 1 — worklet pipeline check. Click to play 440 Hz.
+          Step 2 — polyBLEP saw at A4. Click to play.
         </p>
         <button
-          onClick={toggleTone}
+          onClick={toggleNote}
           className="rounded-full px-6 py-3 bg-neutral-100 text-neutral-900 hover:bg-white transition-colors font-medium"
         >
-          {playing ? 'Stop' : 'Play tone'}
+          {playing ? 'Stop' : 'Play A4'}
         </button>
         <p className="text-xs text-neutral-500">
           {error ? `error: ${error}` : ready ? 'audio context ready' : 'awaiting first interaction'}
