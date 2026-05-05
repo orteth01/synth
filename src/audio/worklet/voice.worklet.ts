@@ -4,7 +4,8 @@ type InMessage =
   | { type: 'noteOn' }
   | { type: 'noteOff' }
 
-const ANTI_CLICK_TAU_S = 0.005
+// Short enough to feel instant (~5 ms to 99% gain), long enough to avoid clicks.
+const ANTI_CLICK_TAU_S = 0.001
 
 class VoiceProcessor extends AudioWorkletProcessor {
   static get parameterDescriptors() {
