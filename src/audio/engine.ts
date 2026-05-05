@@ -7,14 +7,18 @@ export interface EngineLatency {
   totalMs: number
 }
 
+export interface AmpEnvelope {
+  attackS: number
+  decayS: number
+  sustain: number
+  releaseS: number
+}
+
 export class Engine {
   private ctx: AudioContext | null = null
   private node: AudioWorkletNode | null = null
   private started = false
 
-  /** Create the context and load the worklet. Safe to call before any user gesture
-   * — the context starts in 'suspended' state. Call start() on a user gesture to
-   * actually produce audio. Pre-initializing eliminates the first-keypress cold-start. */
   async init(): Promise<void> {
     if (this.ctx) return
     const ctx = new AudioContext({ latencyHint: 'interactive' })
@@ -50,6 +54,15 @@ export class Engine {
 
   noteOff(): void {
     this.node?.port.postMessage({ type: 'noteOff' })
+  }
+
+  setAmpEnvelope(env: AmpEnvelope): void {
+    if (!this.node || !this.ctx) return
+    const t = this.ctx.currentTime
+    this.node.parameters.get('attack')?.setValueAtTime(env.attackS, t)
+    this.node.parameters.get('decay')?.setValueAtTime(env.decayS, t)
+    this.node.parameters.get('sustain')?.setValueAtTime(env.sustain, t)
+    this.node.parameters.get('release')?.setValueAtTime(env.releaseS, t)
   }
 
   getLatency(): EngineLatency | null {
