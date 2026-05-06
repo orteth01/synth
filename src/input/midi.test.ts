@@ -6,6 +6,7 @@ function makeInput() {
   const onNoteOff = vi.fn()
   const onPitchBend = vi.fn()
   const onModWheel = vi.fn()
+  const onPanic = vi.fn()
   const onDevicesChange = vi.fn()
   const onSelectedDeviceChange = vi.fn()
   const onError = vi.fn()
@@ -14,11 +15,12 @@ function makeInput() {
     onNoteOff,
     onPitchBend,
     onModWheel,
+    onPanic,
     onDevicesChange,
     onSelectedDeviceChange,
     onError,
   })
-  return { m, onNoteOn, onNoteOff, onPitchBend, onModWheel }
+  return { m, onNoteOn, onNoteOff, onPitchBend, onModWheel, onPanic }
 }
 
 describe('MidiInput message handling', () => {
@@ -32,23 +34,23 @@ describe('MidiInput message handling', () => {
     expect(h.onNoteOn).toHaveBeenCalledWith(60, 100 / 127)
   })
 
-  it('note-on with velocity 0 fires onNoteOff', () => {
+  it('note-on with velocity 0 fires onNoteOff for that note', () => {
     h.m.handleRawMessage([0x90, 60, 100])
     h.m.handleRawMessage([0x90, 60, 0])
-    expect(h.onNoteOff).toHaveBeenCalled()
+    expect(h.onNoteOff).toHaveBeenCalledWith(60)
   })
 
-  it('explicit note-off message also fires onNoteOff', () => {
+  it('explicit note-off message fires onNoteOff for that note', () => {
     h.m.handleRawMessage([0x90, 60, 100])
     h.m.handleRawMessage([0x80, 60, 0])
-    expect(h.onNoteOff).toHaveBeenCalled()
+    expect(h.onNoteOff).toHaveBeenCalledWith(60)
   })
 
-  it('overlapping notes follow last-note priority on release', () => {
+  it('overlapping note-offs each emit their own release', () => {
     h.m.handleRawMessage([0x90, 60, 100])
     h.m.handleRawMessage([0x90, 64, 80])
     h.m.handleRawMessage([0x80, 64, 0])
-    expect(h.onNoteOn).toHaveBeenLastCalledWith(60, 100 / 127)
+    expect(h.onNoteOff).toHaveBeenLastCalledWith(64)
   })
 
   it('CC1 fires onModWheel normalised to 0..1', () => {
@@ -74,18 +76,17 @@ describe('MidiInput message handling', () => {
   })
 
   it('sustain pedal defers note-off until pedal released', () => {
-    h.m.handleRawMessage([0xb0, 64, 127]) // pedal down
+    h.m.handleRawMessage([0xb0, 64, 127])
     h.m.handleRawMessage([0x90, 60, 100])
     h.m.handleRawMessage([0x80, 60, 0])
-    // Pedal is down; note-off should be deferred — last call was the note-on.
     expect(h.onNoteOff).not.toHaveBeenCalled()
-    h.m.handleRawMessage([0xb0, 64, 0]) // pedal up
-    expect(h.onNoteOff).toHaveBeenCalledOnce()
+    h.m.handleRawMessage([0xb0, 64, 0])
+    expect(h.onNoteOff).toHaveBeenCalledWith(60)
   })
 
   it('CC123 (all notes off) panics', () => {
     h.m.handleRawMessage([0x90, 60, 100])
     h.m.handleRawMessage([0xb0, 123, 0])
-    expect(h.onNoteOff).toHaveBeenCalled()
+    expect(h.onPanic).toHaveBeenCalled()
   })
 })

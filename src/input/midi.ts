@@ -1,4 +1,4 @@
-import { MonoNoteStack, type MidiNote } from './keyboard'
+import type { MidiNote } from './keyboard'
 
 export interface MidiDevice {
   id: string
@@ -7,23 +7,22 @@ export interface MidiDevice {
 
 export interface MidiOptions {
   onNoteOn(note: MidiNote, velocity: number): void
-  onNoteOff(): void
+  onNoteOff(note: MidiNote): void
   onPitchBend(semitones: number): void
   onModWheel(value: number): void
+  onPanic(): void
   onDevicesChange(devices: MidiDevice[]): void
   onSelectedDeviceChange(id: string | null): void
   onError(message: string): void
 }
 
 const PITCH_BEND_RANGE_SEMITONES = 2
-const DEFAULT_VELOCITY_FALLBACK = 0.8
 
 export class MidiInput {
   private access: MIDIAccess | null = null
   private currentInput: MIDIInput | null = null
   private opts: MidiOptions
-  private stack = new MonoNoteStack()
-  private heldVelocities = new Map<MidiNote, number>()
+  private heldNotes = new Set<MidiNote>()
   private sustainHeld = new Set<MidiNote>()
   private sustainPressed = false
 
@@ -75,11 +74,10 @@ export class MidiInput {
   }
 
   panic(): void {
-    this.heldVelocities.clear()
+    this.heldNotes.clear()
     this.sustainHeld.clear()
     this.sustainPressed = false
-    this.stack.clear()
-    this.opts.onNoteOff()
+    this.opts.onPanic()
   }
 
   /** Test seam — feed raw MIDI bytes without going through MIDIMessageEvent. */
@@ -149,8 +147,8 @@ export class MidiInput {
       case 0xe0: {
         const lsb = data[1]
         const msb = data[2] ?? 0
-        const raw = (msb << 7) | lsb // 0..16383
-        const normalized = (raw - 8192) / 8192 // -1..~1
+        const raw = (msb << 7) | lsb
+        const normalized = (raw - 8192) / 8192
         this.opts.onPitchBend(normalized * PITCH_BEND_RANGE_SEMITONES)
         break
       }
@@ -159,28 +157,17 @@ export class MidiInput {
 
   private noteOn(note: MidiNote, velocity: number): void {
     this.sustainHeld.delete(note)
-    this.heldVelocities.set(note, velocity)
-    const active = this.stack.press(note)
-    this.opts.onNoteOn(active, velocity)
+    this.heldNotes.add(note)
+    this.opts.onNoteOn(note, velocity)
   }
 
   private noteOff(note: MidiNote): void {
+    this.heldNotes.delete(note)
     if (this.sustainPressed) {
       this.sustainHeld.add(note)
       return
     }
-    this.releaseNote(note)
-  }
-
-  private releaseNote(note: MidiNote): void {
-    this.heldVelocities.delete(note)
-    const next = this.stack.release(note)
-    if (next !== null) {
-      const vel = this.heldVelocities.get(next) ?? DEFAULT_VELOCITY_FALLBACK
-      this.opts.onNoteOn(next, vel)
-    } else {
-      this.opts.onNoteOff()
-    }
+    this.opts.onNoteOff(note)
   }
 
   private setSustain(pressed: boolean): void {
@@ -189,7 +176,7 @@ export class MidiInput {
     if (!pressed) {
       const deferred = [...this.sustainHeld]
       this.sustainHeld.clear()
-      for (const n of deferred) this.releaseNote(n)
+      for (const n of deferred) this.opts.onNoteOff(n)
     }
   }
 }

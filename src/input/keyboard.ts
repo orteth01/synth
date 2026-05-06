@@ -1,21 +1,16 @@
 export type MidiNote = number
 
-// Bottom row: z,s,x,d,c,v,g,b,h,n,j,m,(,),L,. — chromatic octave starting at C,
-// extending 3 notes into the octave above. Plan §5.1.
 const BOTTOM_ROW_OFFSETS: Record<string, number> = {
   z: 0, s: 1, x: 2, d: 3, c: 4, v: 5, g: 6, b: 7, h: 8, n: 9, j: 10, m: 11,
   ',': 12, l: 13, '.': 14,
 }
 
-// Top row: octave above the bottom row.
 const TOP_ROW_OFFSETS: Record<string, number> = {
   q: 12, '2': 13, w: 14, '3': 15, e: 16, r: 17, '5': 18, t: 19, '6': 20,
   y: 21, '7': 22, u: 23,
   i: 24, '9': 25, o: 26, '0': 27, p: 28,
 }
 
-// Plan §5.1 names z/x as octave shift, but those collide with the note layout.
-// Use bracket keys instead — adjacent on the keyboard, no overlap.
 const OCTAVE_DOWN_KEY = '['
 const OCTAVE_UP_KEY = ']'
 
@@ -29,6 +24,9 @@ export function keyToOffset(key: string): number | null {
   return null
 }
 
+/** Stack tracking last-note priority. Kept for tests and as a building block for
+ *  any future per-input legato logic — the engine itself owns the master stack
+ *  in step 10's polyphony refactor. */
 export class MonoNoteStack {
   private stack: MidiNote[] = []
 
@@ -56,14 +54,13 @@ export class MonoNoteStack {
 
 export interface KeyboardOptions {
   onNoteOn(note: MidiNote): void
-  onNoteOff(): void
+  onNoteOff(note: MidiNote): void
   onOctaveChange?(octave: number): void
   onHeldNotesChange?(notes: ReadonlySet<MidiNote>): void
 }
 
 export class KeyboardInput {
   private octave = 4
-  private stack = new MonoNoteStack()
   private heldKeyNotes = new Map<string, MidiNote>()
   private opts: KeyboardOptions
   private attached = false
@@ -123,8 +120,7 @@ export class KeyboardInput {
     const note = 12 * (this.octave + 1) + offset
     if (note < 0 || note > 127) return
     this.heldKeyNotes.set(e.key, note)
-    const active = this.stack.press(note)
-    this.opts.onNoteOn(active)
+    this.opts.onNoteOn(note)
     this.notifyHeld()
   }
 
@@ -132,9 +128,7 @@ export class KeyboardInput {
     const note = this.heldKeyNotes.get(e.key)
     if (note === undefined) return
     this.heldKeyNotes.delete(e.key)
-    const next = this.stack.release(note)
-    if (next !== null) this.opts.onNoteOn(next)
-    else this.opts.onNoteOff()
+    this.opts.onNoteOff(note)
     this.notifyHeld()
   }
 
@@ -143,10 +137,10 @@ export class KeyboardInput {
   }
 
   private releaseAll(): void {
-    if (this.heldKeyNotes.size === 0 && this.stack.top === null) return
+    if (this.heldKeyNotes.size === 0) return
+    const notes = [...this.heldKeyNotes.values()]
     this.heldKeyNotes.clear()
-    this.stack.clear()
-    this.opts.onNoteOff()
+    for (const n of notes) this.opts.onNoteOff(n)
     this.notifyHeld()
   }
 

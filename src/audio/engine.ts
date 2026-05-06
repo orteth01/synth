@@ -1,5 +1,10 @@
+import { VoiceAllocator } from './voice-allocator'
+
 const WORKLET_URL = '/worklets/voice.worklet.js'
 const PROCESSOR_NAME = 'voice'
+const MAX_VOICES = 8
+const PARAM_SMOOTH_S = 0.005
+const PITCH_BEND_SMOOTH_S = 0.01
 
 export interface EngineLatency {
   baseMs: number
@@ -47,16 +52,19 @@ export interface LfoSettings {
   destination: LfoDestination
 }
 
-const PARAM_SMOOTH_S = 0.005
-const PITCH_BEND_SMOOTH_S = 0.01
+interface HeldNote {
+  velocity: number
+  pressOrder: number
+}
 
 export class Engine {
   private ctx: AudioContext | null = null
   private node: AudioWorkletNode | null = null
   private started = false
 
-  private currentMidiNote = 60
-  private currentPitchBend = 0
+  private allocator = new VoiceAllocator(MAX_VOICES, MAX_VOICES)
+  private heldNotes = new Map<number, HeldNote>()
+  private pressCounter = 0
 
   async init(): Promise<void> {
     if (this.ctx) return
@@ -83,22 +91,70 @@ export class Engine {
     return this.started
   }
 
-  noteOn(midiNote: number, velocity: number = 1): void {
-    if (!this.node || !this.ctx) return
-    if (!this.started) void this.start().catch(() => {})
-    this.currentMidiNote = midiNote
-    this.updateFrequency()
-    this.node.parameters.get('velocity')?.setValueAtTime(velocity, this.ctx.currentTime)
-    this.node.port.postMessage({ type: 'noteOn' })
+  setMaxVoices(n: number): void {
+    const clamped = Math.max(1, Math.min(MAX_VOICES, Math.round(n)))
+    this.allocator.setMaxActive(clamped)
   }
 
-  noteOff(): void {
-    this.node?.port.postMessage({ type: 'noteOff' })
+  getMaxVoices(): number {
+    return this.allocator.getMaxActive()
+  }
+
+  noteOn(midiNote: number, velocity: number = 1): void {
+    if (!this.node) return
+    if (!this.started) void this.start().catch(() => {})
+
+    this.heldNotes.delete(midiNote)
+    this.heldNotes.set(midiNote, { velocity, pressOrder: ++this.pressCounter })
+
+    const { voiceIndex, stolenNote } = this.allocator.allocate(midiNote)
+    if (stolenNote !== null) this.heldNotes.delete(stolenNote)
+
+    this.node.port.postMessage({
+      type: 'noteOn',
+      voiceIndex,
+      note: midiNote,
+      velocity,
+    })
+  }
+
+  noteOff(midiNote: number): void {
+    if (!this.node) return
+    this.heldNotes.delete(midiNote)
+
+    const voiceIndex = this.allocator.release(midiNote)
+    if (voiceIndex === -1) return
+
+    if (this.allocator.getMaxActive() === 1 && this.heldNotes.size > 0) {
+      // Mono last-note priority: fall back to most-recent still-held note.
+      const fallback = mostRecentHeld(this.heldNotes)
+      if (fallback !== null) {
+        this.allocator.reassign(voiceIndex, fallback.note)
+        this.node.port.postMessage({
+          type: 'noteOn',
+          voiceIndex,
+          note: fallback.note,
+          velocity: fallback.velocity,
+        })
+        return
+      }
+    }
+
+    this.node.port.postMessage({ type: 'noteOff', voiceIndex })
+  }
+
+  allNotesOff(): void {
+    if (!this.node) return
+    this.heldNotes.clear()
+    this.allocator.freeAll()
+    this.node.port.postMessage({ type: 'allOff' })
   }
 
   setPitchBend(semitones: number): void {
-    this.currentPitchBend = semitones
-    this.updateFrequency()
+    if (!this.node || !this.ctx) return
+    this.node.parameters
+      .get('pitchBend')
+      ?.setTargetAtTime(semitones, this.ctx.currentTime, PITCH_BEND_SMOOTH_S)
   }
 
   setModWheel(value: number): void {
@@ -166,14 +222,24 @@ export class Engine {
     void this.ctx?.close()
     this.ctx = null
     this.started = false
+    this.heldNotes.clear()
+    this.allocator.freeAll()
   }
+}
 
-  private updateFrequency(): void {
-    if (!this.node || !this.ctx) return
-    const total = this.currentMidiNote + this.currentPitchBend
-    const freq = 440 * Math.pow(2, (total - 69) / 12)
-    this.node.parameters
-      .get('frequency')
-      ?.setTargetAtTime(freq, this.ctx.currentTime, PITCH_BEND_SMOOTH_S)
+function mostRecentHeld(
+  held: Map<number, HeldNote>,
+): { note: number; velocity: number } | null {
+  let bestNote: number | null = null
+  let bestOrder = -1
+  let bestVelocity = 1
+  for (const [note, info] of held) {
+    if (info.pressOrder > bestOrder) {
+      bestOrder = info.pressOrder
+      bestNote = note
+      bestVelocity = info.velocity
+    }
   }
+  if (bestNote === null) return null
+  return { note: bestNote, velocity: bestVelocity }
 }

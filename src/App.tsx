@@ -70,18 +70,23 @@ const DEFAULT_LFO: LfoSettings = {
   destination: 'pitch',
 }
 
+const DEFAULT_VOICES = 8
+const MIN_VOICES = 1
+const MAX_VOICES = 8
+
 export function App() {
   const engineRef = useRef<Engine | null>(null)
   const midiRef = useRef<MidiInput | null>(null)
   const [started, setStarted] = useState(false)
   const [octave, setOctave] = useState(4)
   const [keyboardHeld, setKeyboardHeld] = useState<readonly MidiNote[]>([])
-  const [midiHeld, setMidiHeld] = useState<MidiNote | null>(null)
+  const [midiHeld, setMidiHeld] = useState<readonly MidiNote[]>([])
   const [oscs, setOscs] = useState<OscSettings[]>(DEFAULT_OSCS)
   const [amp, setAmp] = useState<AmpEnvelope>(DEFAULT_AMP)
   const [filter, setFilter] = useState<FilterSettings>(DEFAULT_FILTER)
   const [filterEnv, setFilterEnv] = useState<FilterEnvelope>(DEFAULT_FILTER_ENV)
   const [lfo, setLfo] = useState<LfoSettings>(DEFAULT_LFO)
+  const [voices, setVoices] = useState(DEFAULT_VOICES)
   const [latency, setLatency] = useState<EngineLatency | null>(null)
   const [error, setError] = useState<string | null>(null)
 
@@ -104,6 +109,7 @@ export function App() {
         engine.setFilter(DEFAULT_FILTER)
         engine.setFilterEnvelope(DEFAULT_FILTER_ENV)
         engine.setLfo(DEFAULT_LFO)
+        engine.setMaxVoices(DEFAULT_VOICES)
         setLatency(engine.getLatency())
       })
       .catch((e) => setError(e instanceof Error ? e.message : String(e)))
@@ -124,21 +130,24 @@ export function App() {
         void ensureStarted()
         engineRef.current?.noteOn(n, 1)
       },
-      onNoteOff: () => engineRef.current?.noteOff(),
+      onNoteOff: (n) => engineRef.current?.noteOff(n),
       onOctaveChange: setOctave,
       onHeldNotesChange: (notes) => setKeyboardHeld([...notes].sort((a, b) => a - b)),
     })
     input.attach()
 
+    const midiHeldSet = new Set<MidiNote>()
     const midi = new MidiInput({
       onNoteOn: (n, v) => {
         void ensureStarted()
         engineRef.current?.noteOn(n, v)
-        setMidiHeld(n)
+        midiHeldSet.add(n)
+        setMidiHeld([...midiHeldSet].sort((a, b) => a - b))
       },
-      onNoteOff: () => {
-        engineRef.current?.noteOff()
-        setMidiHeld(null)
+      onNoteOff: (n) => {
+        engineRef.current?.noteOff(n)
+        midiHeldSet.delete(n)
+        setMidiHeld([...midiHeldSet].sort((a, b) => a - b))
       },
       onPitchBend: (st) => {
         engineRef.current?.setPitchBend(st)
@@ -147,6 +156,15 @@ export function App() {
       onModWheel: (v) => {
         engineRef.current?.setModWheel(v)
         setModWheel(v)
+      },
+      onPanic: () => {
+        engineRef.current?.allNotesOff()
+        engineRef.current?.setPitchBend(0)
+        engineRef.current?.setModWheel(0)
+        midiHeldSet.clear()
+        setMidiHeld([])
+        setPitchBend(0)
+        setModWheel(0)
       },
       onDevicesChange: setMidiDevices,
       onSelectedDeviceChange: setMidiSelectedId,
@@ -189,9 +207,13 @@ export function App() {
     engineRef.current?.setLfo(lfo)
   }, [lfo])
 
+  useEffect(() => {
+    engineRef.current?.setMaxVoices(voices)
+  }, [voices])
+
   const playingDisplay = (() => {
     const all = new Set<MidiNote>(keyboardHeld)
-    if (midiHeld !== null) all.add(midiHeld)
+    for (const n of midiHeld) all.add(n)
     return [...all].sort((a, b) => a - b)
   })()
 
@@ -333,6 +355,18 @@ export function App() {
             />
           </Panel>
 
+          <Panel title="Voices">
+            <Knob
+              label={voices === 1 ? 'Mono' : 'Poly'}
+              value={voices}
+              min={MIN_VOICES}
+              max={MAX_VOICES}
+              defaultValue={DEFAULT_VOICES}
+              format={(v) => Math.round(v).toString()}
+              onChange={(v) => setVoices(Math.round(v))}
+            />
+          </Panel>
+
           <MidiPanel
             supported={midiSupported}
             error={midiError}
@@ -341,15 +375,7 @@ export function App() {
             pitchBend={pitchBend}
             modWheel={modWheel}
             onSelect={(id) => midiRef.current?.selectDevice(id)}
-            onPanic={() => {
-              midiRef.current?.panic()
-              engineRef.current?.noteOff()
-              engineRef.current?.setPitchBend(0)
-              engineRef.current?.setModWheel(0)
-              setPitchBend(0)
-              setModWheel(0)
-              setMidiHeld(null)
-            }}
+            onPanic={() => midiRef.current?.panic()}
           />
         </div>
 
