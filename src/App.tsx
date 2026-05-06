@@ -17,12 +17,11 @@ import { MidiPanel } from './ui/MidiPanel'
 import { PresetBar } from './ui/PresetBar'
 import {
   FACTORY_PRESETS,
-  loadUserPresets,
   makePreset,
-  saveUserPresets,
   type Preset,
   type PresetBody,
 } from './state/presets'
+import { getPresetStorage, type PresetStorage } from './state/preset-storage'
 
 const NOTE_NAMES = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B']
 
@@ -108,9 +107,12 @@ export function App() {
 
   const [userPresets, setUserPresets] = useState<Preset[]>([])
   const [presetName, setPresetName] = useState<string | null>(null)
+  const storageRef = useRef<PresetStorage | null>(null)
 
   useEffect(() => {
-    setUserPresets(loadUserPresets())
+    const storage = getPresetStorage()
+    storageRef.current = storage
+    void storage.load().then(setUserPresets)
   }, [])
 
   function applyPreset(p: Preset) {
@@ -145,7 +147,7 @@ export function App() {
     const next = [...userPresets.filter((p) => p.name !== name), preset]
     next.sort((a, b) => a.name.localeCompare(b.name))
     setUserPresets(next)
-    saveUserPresets(next)
+    void storageRef.current?.save(next)
     setPresetName(name)
   }
 
@@ -155,7 +157,7 @@ export function App() {
     if (!window.confirm(`Delete "${presetName}"?`)) return
     const next = userPresets.filter((p) => p.name !== presetName)
     setUserPresets(next)
-    saveUserPresets(next)
+    void storageRef.current?.save(next)
     setPresetName(null)
   }
 
@@ -485,6 +487,9 @@ export function App() {
                   · latency: base {latency.baseMs.toFixed(1)}ms · output{' '}
                   {latency.outputMs.toFixed(1)}ms · total {latency.totalMs.toFixed(1)}ms
                 </>
+              )}
+              {storageRef.current && (
+                <> · presets: {storageRef.current.kind}</>
               )}
             </>
           )}
