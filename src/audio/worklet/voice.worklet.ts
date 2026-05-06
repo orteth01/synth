@@ -1,50 +1,77 @@
-import { PolyBlepSaw } from '../dsp/polyblep'
+import { Oscillator, type Waveshape } from '../dsp/oscillator'
 import { Adsr } from '../dsp/adsr'
 import { LadderFilter } from '../dsp/ladder'
+import { DriftLfo } from '../dsp/drift'
 
 type InMessage =
   | { type: 'noteOn' }
   | { type: 'noteOff' }
+  | { type: 'setWave'; osc: 0 | 1 | 2; wave: Waveshape }
 
 const FILTER_ENV_OCTAVE_RANGE = 5
+const NUM_OSCS = 3
+const DRIFT_DEPTH_CENTS = 2
+// Linear approx of 2^(cents/1200), accurate to <0.1% for small drift.
+const CENTS_TO_FREQ_LINEAR = Math.LN2 / 1200
 
 class VoiceProcessor extends AudioWorkletProcessor {
   static get parameterDescriptors() {
+    const oscParams = [0, 1, 2].flatMap((i) => [
+      { name: `osc${i + 1}Coarse`, defaultValue: 0, minValue: -24, maxValue: 24, automationRate: 'k-rate' as const },
+      { name: `osc${i + 1}Fine`, defaultValue: 0, minValue: -50, maxValue: 50, automationRate: 'k-rate' as const },
+      { name: `osc${i + 1}Level`, defaultValue: i === 0 ? 0.8 : 0, minValue: 0, maxValue: 1, automationRate: 'k-rate' as const },
+    ])
     return [
-      { name: 'frequency', defaultValue: 440, minValue: 20, maxValue: 20000, automationRate: 'k-rate' },
-      { name: 'cutoff', defaultValue: 1000, minValue: 20, maxValue: 20000, automationRate: 'a-rate' },
-      { name: 'resonance', defaultValue: 0, minValue: 0, maxValue: 1, automationRate: 'a-rate' },
-      { name: 'attack', defaultValue: 0.005, minValue: 0, maxValue: 5, automationRate: 'k-rate' },
-      { name: 'decay', defaultValue: 0.15, minValue: 0, maxValue: 5, automationRate: 'k-rate' },
-      { name: 'sustain', defaultValue: 0.7, minValue: 0, maxValue: 1, automationRate: 'k-rate' },
-      { name: 'release', defaultValue: 0.2, minValue: 0, maxValue: 5, automationRate: 'k-rate' },
-      { name: 'fAttack', defaultValue: 0.01, minValue: 0, maxValue: 5, automationRate: 'k-rate' },
-      { name: 'fDecay', defaultValue: 0.4, minValue: 0, maxValue: 5, automationRate: 'k-rate' },
-      { name: 'fSustain', defaultValue: 0, minValue: 0, maxValue: 1, automationRate: 'k-rate' },
-      { name: 'fRelease', defaultValue: 0.3, minValue: 0, maxValue: 5, automationRate: 'k-rate' },
-      { name: 'fEnvAmount', defaultValue: 0.5, minValue: -1, maxValue: 1, automationRate: 'a-rate' },
-    ] as const
+      { name: 'frequency', defaultValue: 440, minValue: 20, maxValue: 20000, automationRate: 'k-rate' as const },
+      ...oscParams,
+      { name: 'cutoff', defaultValue: 1000, minValue: 20, maxValue: 20000, automationRate: 'a-rate' as const },
+      { name: 'resonance', defaultValue: 0, minValue: 0, maxValue: 1, automationRate: 'a-rate' as const },
+      { name: 'attack', defaultValue: 0.005, minValue: 0, maxValue: 5, automationRate: 'k-rate' as const },
+      { name: 'decay', defaultValue: 0.15, minValue: 0, maxValue: 5, automationRate: 'k-rate' as const },
+      { name: 'sustain', defaultValue: 0.7, minValue: 0, maxValue: 1, automationRate: 'k-rate' as const },
+      { name: 'release', defaultValue: 0.2, minValue: 0, maxValue: 5, automationRate: 'k-rate' as const },
+      { name: 'fAttack', defaultValue: 0.01, minValue: 0, maxValue: 5, automationRate: 'k-rate' as const },
+      { name: 'fDecay', defaultValue: 0.4, minValue: 0, maxValue: 5, automationRate: 'k-rate' as const },
+      { name: 'fSustain', defaultValue: 0, minValue: 0, maxValue: 1, automationRate: 'k-rate' as const },
+      { name: 'fRelease', defaultValue: 0.3, minValue: 0, maxValue: 5, automationRate: 'k-rate' as const },
+      { name: 'fEnvAmount', defaultValue: 0.5, minValue: -1, maxValue: 1, automationRate: 'a-rate' as const },
+    ]
   }
 
-  private saw = new PolyBlepSaw()
+  private oscs: Oscillator[] = [new Oscillator(), new Oscillator(), new Oscillator()]
+  // Independent seeds → independent drift, oscillators beat against each other.
+  private drifts: DriftLfo[] = [
+    new DriftLfo(sampleRate, 0xa1),
+    new DriftLfo(sampleRate, 0xb2),
+    new DriftLfo(sampleRate, 0xc3),
+  ]
   private filter = new LadderFilter(sampleRate)
   private ampAdsr = new Adsr(sampleRate)
   private filterAdsr = new Adsr(sampleRate)
+
+  // Per-block scratch buffers, allocated lazily in process().
   private envBuf: Float32Array | null = null
   private filterEnvBuf: Float32Array | null = null
   private cutoffBuf: Float32Array | null = null
   private resonanceBuf: Float32Array | null = null
   private envAmountBuf: Float32Array | null = null
+  private mixBuf: Float32Array | null = null
+  private oscBuf: Float32Array | null = null
+  private freqBuf: Float32Array | null = null
+  private driftBuf: Float32Array | null = null
 
   constructor() {
     super()
     this.port.onmessage = (e: MessageEvent<InMessage>) => {
-      if (e.data.type === 'noteOn') {
+      const m = e.data
+      if (m.type === 'noteOn') {
         this.ampAdsr.noteOn()
         this.filterAdsr.noteOn()
-      } else if (e.data.type === 'noteOff') {
+      } else if (m.type === 'noteOff') {
         this.ampAdsr.noteOff()
         this.filterAdsr.noteOff()
+      } else if (m.type === 'setWave') {
+        this.oscs[m.osc].setWaveshape(m.wave)
       }
     }
   }
@@ -65,14 +92,45 @@ class VoiceProcessor extends AudioWorkletProcessor {
       this.cutoffBuf = new Float32Array(N)
       this.resonanceBuf = new Float32Array(N)
       this.envAmountBuf = new Float32Array(N)
+      this.mixBuf = new Float32Array(N)
+      this.oscBuf = new Float32Array(N)
+      this.freqBuf = new Float32Array(N)
+      this.driftBuf = new Float32Array(N)
     }
     const envBuf = this.envBuf
     const filterEnvBuf = this.filterEnvBuf!
     const cutoffBuf = this.cutoffBuf!
     const resonanceBuf = this.resonanceBuf!
     const envAmountBuf = this.envAmountBuf!
+    const mixBuf = this.mixBuf!
+    const oscBuf = this.oscBuf!
+    const freqBuf = this.freqBuf!
+    const driftBuf = this.driftBuf!
 
-    this.saw.process(parameters.frequency[0], sampleRate, ch, 1)
+    const baseFreq = parameters.frequency[0]
+    mixBuf.fill(0)
+
+    for (let n = 0; n < NUM_OSCS; n++) {
+      const coarse = parameters[`osc${n + 1}Coarse`][0]
+      const fine = parameters[`osc${n + 1}Fine`][0]
+      const level = parameters[`osc${n + 1}Level`][0]
+      if (level <= 0) continue
+
+      const oscFactor = Math.pow(2, (coarse * 100 + fine) / 1200)
+      const oscBaseFreq = baseFreq * oscFactor
+
+      this.drifts[n].process(driftBuf, DRIFT_DEPTH_CENTS)
+      for (let i = 0; i < N; i++) {
+        freqBuf[i] = oscBaseFreq * (1 + driftBuf[i] * CENTS_TO_FREQ_LINEAR)
+      }
+
+      this.oscs[n].process(freqBuf, sampleRate, oscBuf)
+      for (let i = 0; i < N; i++) mixBuf[i] += oscBuf[i] * level
+    }
+
+    // Pre-filter saturation per §4.2 — gain staging to add character when
+    // oscillator levels are pushed up.
+    for (let i = 0; i < N; i++) ch[i] = Math.tanh(mixBuf[i])
 
     expandParam(parameters.cutoff, cutoffBuf)
     expandParam(parameters.resonance, resonanceBuf)
@@ -87,8 +145,6 @@ class VoiceProcessor extends AudioWorkletProcessor {
       },
       filterEnvBuf,
     )
-
-    // Apply filter envelope to base cutoff in octave space.
     for (let i = 0; i < N; i++) {
       cutoffBuf[i] *= Math.pow(2, envAmountBuf[i] * FILTER_ENV_OCTAVE_RANGE * filterEnvBuf[i])
     }

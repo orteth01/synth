@@ -5,9 +5,11 @@ import {
   type AmpEnvelope,
   type FilterSettings,
   type FilterEnvelope,
+  type OscSettings,
 } from './audio/engine'
 import { KeyboardInput, type MidiNote } from './input/keyboard'
 import { Knob } from './ui/Knob'
+import { OscPanel } from './ui/OscPanel'
 
 const NOTE_NAMES = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B']
 
@@ -30,6 +32,12 @@ function formatSigned(v: number): string {
   const sign = v > 0 ? '+' : ''
   return `${sign}${v.toFixed(2)}`
 }
+
+const DEFAULT_OSCS: OscSettings[] = [
+  { waveshape: 'saw', coarse: 0, fine: 0, level: 0.7 },
+  { waveshape: 'saw', coarse: 0, fine: -7, level: 0.5 },
+  { waveshape: 'square', coarse: -12, fine: 0, level: 0.3 },
+]
 
 const DEFAULT_AMP: AmpEnvelope = {
   attackS: 0.005,
@@ -56,6 +64,7 @@ export function App() {
   const [started, setStarted] = useState(false)
   const [octave, setOctave] = useState(4)
   const [held, setHeld] = useState<readonly MidiNote[]>([])
+  const [oscs, setOscs] = useState<OscSettings[]>(DEFAULT_OSCS)
   const [amp, setAmp] = useState<AmpEnvelope>(DEFAULT_AMP)
   const [filter, setFilter] = useState<FilterSettings>(DEFAULT_FILTER)
   const [filterEnv, setFilterEnv] = useState<FilterEnvelope>(DEFAULT_FILTER_ENV)
@@ -69,6 +78,7 @@ export function App() {
     void engine
       .init()
       .then(() => {
+        DEFAULT_OSCS.forEach((s, i) => engine.setOscillator(i as 0 | 1 | 2, s))
         engine.setAmpEnvelope(DEFAULT_AMP)
         engine.setFilter(DEFAULT_FILTER)
         engine.setFilterEnvelope(DEFAULT_FILTER_ENV)
@@ -110,6 +120,10 @@ export function App() {
   }, [])
 
   useEffect(() => {
+    oscs.forEach((s, i) => engineRef.current?.setOscillator(i as 0 | 1 | 2, s))
+  }, [oscs])
+
+  useEffect(() => {
     engineRef.current?.setAmpEnvelope(amp)
   }, [amp])
 
@@ -122,11 +136,25 @@ export function App() {
   }, [filterEnv])
 
   return (
-    <main className="min-h-full flex items-center justify-center p-8">
-      <div className="flex flex-col items-center gap-6 max-w-5xl text-center">
+    <main className="min-h-full flex items-center justify-center p-6">
+      <div className="flex flex-col items-center gap-5 max-w-6xl">
         <h1 className="text-2xl font-medium tracking-tight">Synth</h1>
 
-        <div className="flex flex-wrap gap-4 justify-center">
+        <div className="flex flex-wrap gap-3 justify-center">
+          {oscs.map((osc, i) => (
+            <OscPanel
+              key={i}
+              index={i}
+              value={osc}
+              defaults={DEFAULT_OSCS[i]}
+              onChange={(next) =>
+                setOscs((prev) => prev.map((p, idx) => (idx === i ? next : p)))
+              }
+            />
+          ))}
+        </div>
+
+        <div className="flex flex-wrap gap-3 justify-center">
           <Panel title="Filter">
             <Knob
               label="Cutoff"
@@ -244,7 +272,7 @@ export function App() {
           </Panel>
         </div>
 
-        <p className="text-sm text-neutral-400 max-w-md">
+        <p className="text-sm text-neutral-400 max-w-md text-center">
           Type to play. <kbd className="font-mono">zsxdcvgbhnjm,l.</kbd> = chromatic
           octave from C; <kbd className="font-mono">q2w3er5t6y7ui9o0p</kbd> = octave
           above; <kbd className="font-mono">[</kbd>/<kbd className="font-mono">]</kbd>{' '}

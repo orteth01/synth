@@ -7,6 +7,16 @@ export interface EngineLatency {
   totalMs: number
 }
 
+export type Waveshape = 'saw' | 'square' | 'triangle' | 'pulse'
+export type OscIndex = 0 | 1 | 2
+
+export interface OscSettings {
+  waveshape: Waveshape
+  coarse: number
+  fine: number
+  level: number
+}
+
 export interface AmpEnvelope {
   attackS: number
   decayS: number
@@ -78,6 +88,16 @@ export class Engine {
     this.node.parameters.get('decay')?.setValueAtTime(env.decayS, t)
     this.node.parameters.get('sustain')?.setValueAtTime(env.sustain, t)
     this.node.parameters.get('release')?.setValueAtTime(env.releaseS, t)
+  }
+
+  setOscillator(index: OscIndex, s: OscSettings): void {
+    if (!this.node || !this.ctx) return
+    const t = this.ctx.currentTime
+    const i = index + 1
+    this.node.parameters.get(`osc${i}Coarse`)?.setValueAtTime(s.coarse, t)
+    this.node.parameters.get(`osc${i}Fine`)?.setValueAtTime(s.fine, t)
+    this.node.parameters.get(`osc${i}Level`)?.setTargetAtTime(s.level, t, PARAM_SMOOTH_S)
+    this.node.port.postMessage({ type: 'setWave', osc: index, wave: s.waveshape })
   }
 
   setFilter(f: FilterSettings): void {
