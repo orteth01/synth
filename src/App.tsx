@@ -85,8 +85,13 @@ const MIN_VOICES = 1
 const MAX_VOICES = 8
 
 const DEFAULT_MASTER = 0.8
-const PIANO_START_MIDI = 48 // C3
-const PIANO_OCTAVES = 3
+const PIANO_OCTAVES = 4
+// Anchor the piano so the computer keyboard's reachable range (C of the current
+// octave through ~E two octaves up) always falls inside the drawn keys.
+function pianoStartMidi(octave: number): number {
+  const start = 12 * octave // C(octave - 1) in standard MIDI numbering
+  return Math.max(0, Math.min(127 - PIANO_OCTAVES * 12 + 1, start))
+}
 
 export function App() {
   const engineRef = useRef<Engine | null>(null)
@@ -497,7 +502,7 @@ export function App() {
         </div>
 
         <PianoKeyboard
-          startMidi={PIANO_START_MIDI}
+          startMidi={pianoStartMidi(octave)}
           octaves={PIANO_OCTAVES}
           held={allHeld}
           onNoteOn={pianoOnNoteOn}
