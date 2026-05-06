@@ -14,6 +14,15 @@ import { Knob } from './ui/Knob'
 import { OscPanel } from './ui/OscPanel'
 import { LfoPanel } from './ui/LfoPanel'
 import { MidiPanel } from './ui/MidiPanel'
+import { PresetBar } from './ui/PresetBar'
+import {
+  FACTORY_PRESETS,
+  loadUserPresets,
+  makePreset,
+  saveUserPresets,
+  type Preset,
+  type PresetBody,
+} from './state/presets'
 
 const NOTE_NAMES = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B']
 
@@ -96,6 +105,59 @@ export function App() {
   const [midiSelectedId, setMidiSelectedId] = useState<string | null>(null)
   const [pitchBend, setPitchBend] = useState(0)
   const [modWheel, setModWheel] = useState(0)
+
+  const [userPresets, setUserPresets] = useState<Preset[]>([])
+  const [presetName, setPresetName] = useState<string | null>(null)
+
+  useEffect(() => {
+    setUserPresets(loadUserPresets())
+  }, [])
+
+  function applyPreset(p: Preset) {
+    setOscs(p.oscs)
+    setAmp(p.amp)
+    setFilter(p.filter)
+    setFilterEnv(p.filterEnv)
+    setLfo(p.lfo)
+    setVoices(p.voices)
+    setPresetName(p.name)
+  }
+
+  function currentBody(): PresetBody {
+    return { oscs, amp, filter, filterEnv, lfo, voices }
+  }
+
+  function handleSelectPreset(name: string) {
+    if (!name) return
+    const all = [...FACTORY_PRESETS, ...userPresets]
+    const p = all.find((x) => x.name === name)
+    if (p) applyPreset(p)
+  }
+
+  function handleSavePreset() {
+    const name = window.prompt('Preset name', presetName ?? '')?.trim()
+    if (!name) return
+    if (FACTORY_PRESETS.some((p) => p.name === name)) {
+      window.alert(`"${name}" is a factory preset. Choose a different name.`)
+      return
+    }
+    const preset = makePreset(name, currentBody())
+    const next = [...userPresets.filter((p) => p.name !== name), preset]
+    next.sort((a, b) => a.name.localeCompare(b.name))
+    setUserPresets(next)
+    saveUserPresets(next)
+    setPresetName(name)
+  }
+
+  function handleDeletePreset() {
+    if (!presetName) return
+    if (!userPresets.some((p) => p.name === presetName)) return
+    if (!window.confirm(`Delete "${presetName}"?`)) return
+    const next = userPresets.filter((p) => p.name !== presetName)
+    setUserPresets(next)
+    saveUserPresets(next)
+    setPresetName(null)
+  }
 
   useEffect(() => {
     const engine = new Engine()
@@ -221,6 +283,15 @@ export function App() {
     <main className="min-h-full flex items-center justify-center p-6">
       <div className="flex flex-col items-center gap-5 max-w-6xl">
         <h1 className="text-2xl font-medium tracking-tight">Synth</h1>
+
+        <PresetBar
+          factory={FACTORY_PRESETS}
+          user={userPresets}
+          selectedName={presetName}
+          onSelect={handleSelectPreset}
+          onSave={handleSavePreset}
+          onDelete={handleDeletePreset}
+        />
 
         <div className="flex flex-wrap gap-3 justify-center">
           {oscs.map((osc, i) => (
