@@ -12,6 +12,7 @@
     "typecheck": "tsc -b",
     "test": "vitest run",
     "test:watch": "vitest",
+    "test:e2e": "playwright test",
     "tauri": "tauri"
   },
   "dependencies": {
@@ -22,6 +23,7 @@
   },
   "devDependencies": {
     "@tailwindcss/vite": "^4.0.0",
+    "@playwright/test": "^1.49.0",
     "@tauri-apps/cli": "^2",
     "@types/audioworklet": "^0.0.60",
     "@types/react": "^19.0.0",

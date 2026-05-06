@@ -60,6 +60,7 @@ interface HeldNote {
 export class Engine {
   private ctx: AudioContext | null = null
   private node: AudioWorkletNode | null = null
+  private masterGain: GainNode | null = null
   private started = false
 
   private allocator = new VoiceAllocator(MAX_VOICES, MAX_VOICES)
@@ -75,9 +76,19 @@ export class Engine {
       numberOfOutputs: 1,
       outputChannelCount: [1],
     })
-    node.connect(ctx.destination)
+    const masterGain = ctx.createGain()
+    masterGain.gain.value = 0.8
+    node.connect(masterGain)
+    masterGain.connect(ctx.destination)
     this.ctx = ctx
     this.node = node
+    this.masterGain = masterGain
+  }
+
+  setMasterVolume(v: number): void {
+    if (!this.masterGain || !this.ctx) return
+    const clamped = v < 0 ? 0 : v > 1 ? 1 : v
+    this.masterGain.gain.setTargetAtTime(clamped, this.ctx.currentTime, PARAM_SMOOTH_S)
   }
 
   async start(): Promise<void> {
@@ -219,6 +230,8 @@ export class Engine {
   dispose(): void {
     this.node?.disconnect()
     this.node = null
+    this.masterGain?.disconnect()
+    this.masterGain = null
     void this.ctx?.close()
     this.ctx = null
     this.started = false
