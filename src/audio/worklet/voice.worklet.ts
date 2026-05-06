@@ -2,17 +2,24 @@ import { Oscillator, type Waveshape } from '../dsp/oscillator'
 import { Adsr } from '../dsp/adsr'
 import { LadderFilter } from '../dsp/ladder'
 import { DriftLfo } from '../dsp/drift'
+import { Lfo, type LfoShape } from '../dsp/lfo'
+
+export type LfoDestination = 'off' | 'pitch' | 'cutoff' | 'amp'
 
 type InMessage =
   | { type: 'noteOn' }
   | { type: 'noteOff' }
   | { type: 'setWave'; osc: 0 | 1 | 2; wave: Waveshape }
+  | { type: 'setLfoShape'; shape: LfoShape }
+  | { type: 'setLfoDest'; dest: LfoDestination }
 
 const FILTER_ENV_OCTAVE_RANGE = 5
 const NUM_OSCS = 3
 const DRIFT_DEPTH_CENTS = 2
-// Linear approx of 2^(cents/1200), accurate to <0.1% for small drift.
 const CENTS_TO_FREQ_LINEAR = Math.LN2 / 1200
+const LFO_PITCH_RANGE_CENTS = 100 // ±1 semitone at full depth
+const LFO_CUTOFF_RANGE_OCT = 2 // ±2 octaves at full depth
+const LFO_AMP_RANGE = 0.5 // ±50% gain at full depth
 
 class VoiceProcessor extends AudioWorkletProcessor {
   static get parameterDescriptors() {
@@ -35,11 +42,12 @@ class VoiceProcessor extends AudioWorkletProcessor {
       { name: 'fSustain', defaultValue: 0, minValue: 0, maxValue: 1, automationRate: 'k-rate' as const },
       { name: 'fRelease', defaultValue: 0.3, minValue: 0, maxValue: 5, automationRate: 'k-rate' as const },
       { name: 'fEnvAmount', defaultValue: 0.5, minValue: -1, maxValue: 1, automationRate: 'a-rate' as const },
+      { name: 'lfoRate', defaultValue: 5, minValue: 0.05, maxValue: 20, automationRate: 'k-rate' as const },
+      { name: 'lfoDepth', defaultValue: 0, minValue: 0, maxValue: 1, automationRate: 'a-rate' as const },
     ]
   }
 
   private oscs: Oscillator[] = [new Oscillator(), new Oscillator(), new Oscillator()]
-  // Independent seeds → independent drift, oscillators beat against each other.
   private drifts: DriftLfo[] = [
     new DriftLfo(sampleRate, 0xa1),
     new DriftLfo(sampleRate, 0xb2),
@@ -48,8 +56,9 @@ class VoiceProcessor extends AudioWorkletProcessor {
   private filter = new LadderFilter(sampleRate)
   private ampAdsr = new Adsr(sampleRate)
   private filterAdsr = new Adsr(sampleRate)
+  private lfo = new Lfo(0xd4)
+  private lfoDest: LfoDestination = 'off'
 
-  // Per-block scratch buffers, allocated lazily in process().
   private envBuf: Float32Array | null = null
   private filterEnvBuf: Float32Array | null = null
   private cutoffBuf: Float32Array | null = null
@@ -59,6 +68,8 @@ class VoiceProcessor extends AudioWorkletProcessor {
   private oscBuf: Float32Array | null = null
   private freqBuf: Float32Array | null = null
   private driftBuf: Float32Array | null = null
+  private lfoBuf: Float32Array | null = null
+  private lfoDepthBuf: Float32Array | null = null
 
   constructor() {
     super()
@@ -72,6 +83,10 @@ class VoiceProcessor extends AudioWorkletProcessor {
         this.filterAdsr.noteOff()
       } else if (m.type === 'setWave') {
         this.oscs[m.osc].setWaveshape(m.wave)
+      } else if (m.type === 'setLfoShape') {
+        this.lfo.setShape(m.shape)
+      } else if (m.type === 'setLfoDest') {
+        this.lfoDest = m.dest
       }
     }
   }
@@ -96,6 +111,8 @@ class VoiceProcessor extends AudioWorkletProcessor {
       this.oscBuf = new Float32Array(N)
       this.freqBuf = new Float32Array(N)
       this.driftBuf = new Float32Array(N)
+      this.lfoBuf = new Float32Array(N)
+      this.lfoDepthBuf = new Float32Array(N)
     }
     const envBuf = this.envBuf
     const filterEnvBuf = this.filterEnvBuf!
@@ -106,6 +123,13 @@ class VoiceProcessor extends AudioWorkletProcessor {
     const oscBuf = this.oscBuf!
     const freqBuf = this.freqBuf!
     const driftBuf = this.driftBuf!
+    const lfoBuf = this.lfoBuf!
+    const lfoDepthBuf = this.lfoDepthBuf!
+
+    this.lfo.process(parameters.lfoRate[0], sampleRate, lfoBuf)
+    expandParam(parameters.lfoDepth, lfoDepthBuf)
+    const dest = this.lfoDest
+    const lfoActive = dest !== 'off'
 
     const baseFreq = parameters.frequency[0]
     mixBuf.fill(0)
@@ -120,16 +144,21 @@ class VoiceProcessor extends AudioWorkletProcessor {
       const oscBaseFreq = baseFreq * oscFactor
 
       this.drifts[n].process(driftBuf, DRIFT_DEPTH_CENTS)
-      for (let i = 0; i < N; i++) {
-        freqBuf[i] = oscBaseFreq * (1 + driftBuf[i] * CENTS_TO_FREQ_LINEAR)
+      if (lfoActive && dest === 'pitch') {
+        for (let i = 0; i < N; i++) {
+          const totalCents = driftBuf[i] + lfoBuf[i] * lfoDepthBuf[i] * LFO_PITCH_RANGE_CENTS
+          freqBuf[i] = oscBaseFreq * (1 + totalCents * CENTS_TO_FREQ_LINEAR)
+        }
+      } else {
+        for (let i = 0; i < N; i++) {
+          freqBuf[i] = oscBaseFreq * (1 + driftBuf[i] * CENTS_TO_FREQ_LINEAR)
+        }
       }
 
       this.oscs[n].process(freqBuf, sampleRate, oscBuf)
       for (let i = 0; i < N; i++) mixBuf[i] += oscBuf[i] * level
     }
 
-    // Pre-filter saturation per §4.2 — gain staging to add character when
-    // oscillator levels are pushed up.
     for (let i = 0; i < N; i++) ch[i] = Math.tanh(mixBuf[i])
 
     expandParam(parameters.cutoff, cutoffBuf)
@@ -145,8 +174,17 @@ class VoiceProcessor extends AudioWorkletProcessor {
       },
       filterEnvBuf,
     )
-    for (let i = 0; i < N; i++) {
-      cutoffBuf[i] *= Math.pow(2, envAmountBuf[i] * FILTER_ENV_OCTAVE_RANGE * filterEnvBuf[i])
+    if (lfoActive && dest === 'cutoff') {
+      for (let i = 0; i < N; i++) {
+        const octaves =
+          envAmountBuf[i] * FILTER_ENV_OCTAVE_RANGE * filterEnvBuf[i] +
+          lfoBuf[i] * lfoDepthBuf[i] * LFO_CUTOFF_RANGE_OCT
+        cutoffBuf[i] *= Math.pow(2, octaves)
+      }
+    } else {
+      for (let i = 0; i < N; i++) {
+        cutoffBuf[i] *= Math.pow(2, envAmountBuf[i] * FILTER_ENV_OCTAVE_RANGE * filterEnvBuf[i])
+      }
     }
 
     this.filter.process(ch, cutoffBuf, resonanceBuf, ch)
@@ -160,7 +198,13 @@ class VoiceProcessor extends AudioWorkletProcessor {
       },
       envBuf,
     )
-    for (let i = 0; i < N; i++) ch[i] *= envBuf[i]
+    if (lfoActive && dest === 'amp') {
+      for (let i = 0; i < N; i++) {
+        ch[i] *= envBuf[i] * (1 + lfoBuf[i] * lfoDepthBuf[i] * LFO_AMP_RANGE)
+      }
+    } else {
+      for (let i = 0; i < N; i++) ch[i] *= envBuf[i]
+    }
 
     return true
   }

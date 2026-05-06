@@ -6,10 +6,12 @@ import {
   type FilterSettings,
   type FilterEnvelope,
   type OscSettings,
+  type LfoSettings,
 } from './audio/engine'
 import { KeyboardInput, type MidiNote } from './input/keyboard'
 import { Knob } from './ui/Knob'
 import { OscPanel } from './ui/OscPanel'
+import { LfoPanel } from './ui/LfoPanel'
 
 const NOTE_NAMES = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B']
 
@@ -59,6 +61,13 @@ const DEFAULT_FILTER_ENV: FilterEnvelope = {
   envAmount: 0.5,
 }
 
+const DEFAULT_LFO: LfoSettings = {
+  shape: 'triangle',
+  rateHz: 5,
+  depth: 0,
+  destination: 'pitch',
+}
+
 export function App() {
   const engineRef = useRef<Engine | null>(null)
   const [started, setStarted] = useState(false)
@@ -68,6 +77,7 @@ export function App() {
   const [amp, setAmp] = useState<AmpEnvelope>(DEFAULT_AMP)
   const [filter, setFilter] = useState<FilterSettings>(DEFAULT_FILTER)
   const [filterEnv, setFilterEnv] = useState<FilterEnvelope>(DEFAULT_FILTER_ENV)
+  const [lfo, setLfo] = useState<LfoSettings>(DEFAULT_LFO)
   const [latency, setLatency] = useState<EngineLatency | null>(null)
   const [error, setError] = useState<string | null>(null)
 
@@ -82,6 +92,7 @@ export function App() {
         engine.setAmpEnvelope(DEFAULT_AMP)
         engine.setFilter(DEFAULT_FILTER)
         engine.setFilterEnvelope(DEFAULT_FILTER_ENV)
+        engine.setLfo(DEFAULT_LFO)
         setLatency(engine.getLatency())
       })
       .catch((e) => setError(e instanceof Error ? e.message : String(e)))
@@ -134,6 +145,10 @@ export function App() {
   useEffect(() => {
     engineRef.current?.setFilterEnvelope(filterEnv)
   }, [filterEnv])
+
+  useEffect(() => {
+    engineRef.current?.setLfo(lfo)
+  }, [lfo])
 
   return (
     <main className="min-h-full flex items-center justify-center p-6">
@@ -228,6 +243,8 @@ export function App() {
               onChange={(releaseS) => setFilterEnv((e) => ({ ...e, releaseS }))}
             />
           </Panel>
+
+          <LfoPanel value={lfo} defaults={DEFAULT_LFO} onChange={setLfo} />
 
           <Panel title="Amp envelope">
             <Knob

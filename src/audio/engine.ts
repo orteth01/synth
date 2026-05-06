@@ -37,6 +37,16 @@ export interface FilterEnvelope {
   envAmount: number
 }
 
+export type LfoShape = 'sine' | 'triangle' | 'square' | 'sh'
+export type LfoDestination = 'off' | 'pitch' | 'cutoff' | 'amp'
+
+export interface LfoSettings {
+  shape: LfoShape
+  rateHz: number
+  depth: number
+  destination: LfoDestination
+}
+
 const PARAM_SMOOTH_S = 0.005
 
 export class Engine {
@@ -115,6 +125,15 @@ export class Engine {
     this.node.parameters.get('fSustain')?.setValueAtTime(env.sustain, t)
     this.node.parameters.get('fRelease')?.setValueAtTime(env.releaseS, t)
     this.node.parameters.get('fEnvAmount')?.setTargetAtTime(env.envAmount, t, PARAM_SMOOTH_S)
+  }
+
+  setLfo(s: LfoSettings): void {
+    if (!this.node || !this.ctx) return
+    const t = this.ctx.currentTime
+    this.node.parameters.get('lfoRate')?.setTargetAtTime(s.rateHz, t, PARAM_SMOOTH_S)
+    this.node.parameters.get('lfoDepth')?.setTargetAtTime(s.depth, t, PARAM_SMOOTH_S)
+    this.node.port.postMessage({ type: 'setLfoShape', shape: s.shape })
+    this.node.port.postMessage({ type: 'setLfoDest', dest: s.destination })
   }
 
   getLatency(): EngineLatency | null {
