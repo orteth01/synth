@@ -48,11 +48,15 @@ export interface LfoSettings {
 }
 
 const PARAM_SMOOTH_S = 0.005
+const PITCH_BEND_SMOOTH_S = 0.01
 
 export class Engine {
   private ctx: AudioContext | null = null
   private node: AudioWorkletNode | null = null
   private started = false
+
+  private currentMidiNote = 60
+  private currentPitchBend = 0
 
   async init(): Promise<void> {
     if (this.ctx) return
@@ -79,11 +83,12 @@ export class Engine {
     return this.started
   }
 
-  noteOn(midiNote: number): void {
+  noteOn(midiNote: number, velocity: number = 1): void {
     if (!this.node || !this.ctx) return
     if (!this.started) void this.start().catch(() => {})
-    const freq = 440 * Math.pow(2, (midiNote - 69) / 12)
-    this.node.parameters.get('frequency')?.setValueAtTime(freq, this.ctx.currentTime)
+    this.currentMidiNote = midiNote
+    this.updateFrequency()
+    this.node.parameters.get('velocity')?.setValueAtTime(velocity, this.ctx.currentTime)
     this.node.port.postMessage({ type: 'noteOn' })
   }
 
@@ -91,13 +96,16 @@ export class Engine {
     this.node?.port.postMessage({ type: 'noteOff' })
   }
 
-  setAmpEnvelope(env: AmpEnvelope): void {
+  setPitchBend(semitones: number): void {
+    this.currentPitchBend = semitones
+    this.updateFrequency()
+  }
+
+  setModWheel(value: number): void {
     if (!this.node || !this.ctx) return
-    const t = this.ctx.currentTime
-    this.node.parameters.get('attack')?.setValueAtTime(env.attackS, t)
-    this.node.parameters.get('decay')?.setValueAtTime(env.decayS, t)
-    this.node.parameters.get('sustain')?.setValueAtTime(env.sustain, t)
-    this.node.parameters.get('release')?.setValueAtTime(env.releaseS, t)
+    this.node.parameters
+      .get('lfoModWheel')
+      ?.setTargetAtTime(value, this.ctx.currentTime, PARAM_SMOOTH_S)
   }
 
   setOscillator(index: OscIndex, s: OscSettings): void {
@@ -115,6 +123,15 @@ export class Engine {
     const t = this.ctx.currentTime
     this.node.parameters.get('cutoff')?.setTargetAtTime(f.cutoffHz, t, PARAM_SMOOTH_S)
     this.node.parameters.get('resonance')?.setTargetAtTime(f.resonance, t, PARAM_SMOOTH_S)
+  }
+
+  setAmpEnvelope(env: AmpEnvelope): void {
+    if (!this.node || !this.ctx) return
+    const t = this.ctx.currentTime
+    this.node.parameters.get('attack')?.setValueAtTime(env.attackS, t)
+    this.node.parameters.get('decay')?.setValueAtTime(env.decayS, t)
+    this.node.parameters.get('sustain')?.setValueAtTime(env.sustain, t)
+    this.node.parameters.get('release')?.setValueAtTime(env.releaseS, t)
   }
 
   setFilterEnvelope(env: FilterEnvelope): void {
@@ -149,5 +166,14 @@ export class Engine {
     void this.ctx?.close()
     this.ctx = null
     this.started = false
+  }
+
+  private updateFrequency(): void {
+    if (!this.node || !this.ctx) return
+    const total = this.currentMidiNote + this.currentPitchBend
+    const freq = 440 * Math.pow(2, (total - 69) / 12)
+    this.node.parameters
+      .get('frequency')
+      ?.setTargetAtTime(freq, this.ctx.currentTime, PITCH_BEND_SMOOTH_S)
   }
 }

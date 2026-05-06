@@ -44,6 +44,8 @@ class VoiceProcessor extends AudioWorkletProcessor {
       { name: 'fEnvAmount', defaultValue: 0.5, minValue: -1, maxValue: 1, automationRate: 'a-rate' as const },
       { name: 'lfoRate', defaultValue: 5, minValue: 0.05, maxValue: 20, automationRate: 'k-rate' as const },
       { name: 'lfoDepth', defaultValue: 0, minValue: 0, maxValue: 1, automationRate: 'a-rate' as const },
+      { name: 'lfoModWheel', defaultValue: 0, minValue: 0, maxValue: 1, automationRate: 'a-rate' as const },
+      { name: 'velocity', defaultValue: 1, minValue: 0, maxValue: 1, automationRate: 'k-rate' as const },
     ]
   }
 
@@ -70,6 +72,7 @@ class VoiceProcessor extends AudioWorkletProcessor {
   private driftBuf: Float32Array | null = null
   private lfoBuf: Float32Array | null = null
   private lfoDepthBuf: Float32Array | null = null
+  private lfoModWheelBuf: Float32Array | null = null
 
   constructor() {
     super()
@@ -113,6 +116,7 @@ class VoiceProcessor extends AudioWorkletProcessor {
       this.driftBuf = new Float32Array(N)
       this.lfoBuf = new Float32Array(N)
       this.lfoDepthBuf = new Float32Array(N)
+      this.lfoModWheelBuf = new Float32Array(N)
     }
     const envBuf = this.envBuf
     const filterEnvBuf = this.filterEnvBuf!
@@ -125,9 +129,16 @@ class VoiceProcessor extends AudioWorkletProcessor {
     const driftBuf = this.driftBuf!
     const lfoBuf = this.lfoBuf!
     const lfoDepthBuf = this.lfoDepthBuf!
+    const lfoModWheelBuf = this.lfoModWheelBuf!
 
     this.lfo.process(parameters.lfoRate[0], sampleRate, lfoBuf)
     expandParam(parameters.lfoDepth, lfoDepthBuf)
+    expandParam(parameters.lfoModWheel, lfoModWheelBuf)
+    // UI knob and mod wheel are independent inputs; sum and clamp to [0, 1].
+    for (let i = 0; i < N; i++) {
+      const sum = lfoDepthBuf[i] + lfoModWheelBuf[i]
+      lfoDepthBuf[i] = sum > 1 ? 1 : sum
+    }
     const dest = this.lfoDest
     const lfoActive = dest !== 'off'
 
@@ -198,12 +209,13 @@ class VoiceProcessor extends AudioWorkletProcessor {
       },
       envBuf,
     )
+    const velocity = parameters.velocity[0]
     if (lfoActive && dest === 'amp') {
       for (let i = 0; i < N; i++) {
-        ch[i] *= envBuf[i] * (1 + lfoBuf[i] * lfoDepthBuf[i] * LFO_AMP_RANGE)
+        ch[i] *= envBuf[i] * velocity * (1 + lfoBuf[i] * lfoDepthBuf[i] * LFO_AMP_RANGE)
       }
     } else {
-      for (let i = 0; i < N; i++) ch[i] *= envBuf[i]
+      for (let i = 0; i < N; i++) ch[i] *= envBuf[i] * velocity
     }
 
     return true

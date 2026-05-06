@@ -9,9 +9,11 @@ import {
   type LfoSettings,
 } from './audio/engine'
 import { KeyboardInput, type MidiNote } from './input/keyboard'
+import { MidiInput, type MidiDevice } from './input/midi'
 import { Knob } from './ui/Knob'
 import { OscPanel } from './ui/OscPanel'
 import { LfoPanel } from './ui/LfoPanel'
+import { MidiPanel } from './ui/MidiPanel'
 
 const NOTE_NAMES = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B']
 
@@ -70,9 +72,11 @@ const DEFAULT_LFO: LfoSettings = {
 
 export function App() {
   const engineRef = useRef<Engine | null>(null)
+  const midiRef = useRef<MidiInput | null>(null)
   const [started, setStarted] = useState(false)
   const [octave, setOctave] = useState(4)
-  const [held, setHeld] = useState<readonly MidiNote[]>([])
+  const [keyboardHeld, setKeyboardHeld] = useState<readonly MidiNote[]>([])
+  const [midiHeld, setMidiHeld] = useState<MidiNote | null>(null)
   const [oscs, setOscs] = useState<OscSettings[]>(DEFAULT_OSCS)
   const [amp, setAmp] = useState<AmpEnvelope>(DEFAULT_AMP)
   const [filter, setFilter] = useState<FilterSettings>(DEFAULT_FILTER)
@@ -80,6 +84,13 @@ export function App() {
   const [lfo, setLfo] = useState<LfoSettings>(DEFAULT_LFO)
   const [latency, setLatency] = useState<EngineLatency | null>(null)
   const [error, setError] = useState<string | null>(null)
+
+  const [midiSupported, setMidiSupported] = useState(true)
+  const [midiError, setMidiError] = useState<string | null>(null)
+  const [midiDevices, setMidiDevices] = useState<MidiDevice[]>([])
+  const [midiSelectedId, setMidiSelectedId] = useState<string | null>(null)
+  const [pitchBend, setPitchBend] = useState(0)
+  const [modWheel, setModWheel] = useState(0)
 
   useEffect(() => {
     const engine = new Engine()
@@ -111,13 +122,39 @@ export function App() {
     const input = new KeyboardInput({
       onNoteOn: (n) => {
         void ensureStarted()
-        engineRef.current?.noteOn(n)
+        engineRef.current?.noteOn(n, 1)
       },
       onNoteOff: () => engineRef.current?.noteOff(),
       onOctaveChange: setOctave,
-      onHeldNotesChange: (notes) => setHeld([...notes].sort((a, b) => a - b)),
+      onHeldNotesChange: (notes) => setKeyboardHeld([...notes].sort((a, b) => a - b)),
     })
     input.attach()
+
+    const midi = new MidiInput({
+      onNoteOn: (n, v) => {
+        void ensureStarted()
+        engineRef.current?.noteOn(n, v)
+        setMidiHeld(n)
+      },
+      onNoteOff: () => {
+        engineRef.current?.noteOff()
+        setMidiHeld(null)
+      },
+      onPitchBend: (st) => {
+        engineRef.current?.setPitchBend(st)
+        setPitchBend(st)
+      },
+      onModWheel: (v) => {
+        engineRef.current?.setModWheel(v)
+        setModWheel(v)
+      },
+      onDevicesChange: setMidiDevices,
+      onSelectedDeviceChange: setMidiSelectedId,
+      onError: setMidiError,
+    })
+    midiRef.current = midi
+    setMidiSupported(midi.isSupported())
+    void midi.start()
 
     const onPointer = () => void ensureStarted()
     window.addEventListener('pointerdown', onPointer)
@@ -125,6 +162,8 @@ export function App() {
     return () => {
       window.removeEventListener('pointerdown', onPointer)
       input.detach()
+      midi.stop()
+      midiRef.current = null
       engine.dispose()
       engineRef.current = null
     }
@@ -149,6 +188,12 @@ export function App() {
   useEffect(() => {
     engineRef.current?.setLfo(lfo)
   }, [lfo])
+
+  const playingDisplay = (() => {
+    const all = new Set<MidiNote>(keyboardHeld)
+    if (midiHeld !== null) all.add(midiHeld)
+    return [...all].sort((a, b) => a - b)
+  })()
 
   return (
     <main className="min-h-full flex items-center justify-center p-6">
@@ -287,6 +332,25 @@ export function App() {
               onChange={(releaseS) => setAmp((a) => ({ ...a, releaseS }))}
             />
           </Panel>
+
+          <MidiPanel
+            supported={midiSupported}
+            error={midiError}
+            devices={midiDevices}
+            selectedId={midiSelectedId}
+            pitchBend={pitchBend}
+            modWheel={modWheel}
+            onSelect={(id) => midiRef.current?.selectDevice(id)}
+            onPanic={() => {
+              midiRef.current?.panic()
+              engineRef.current?.noteOff()
+              engineRef.current?.setPitchBend(0)
+              engineRef.current?.setModWheel(0)
+              setPitchBend(0)
+              setModWheel(0)
+              setMidiHeld(null)
+            }}
+          />
         </div>
 
         <p className="text-sm text-neutral-400 max-w-md text-center">
@@ -301,9 +365,10 @@ export function App() {
             octave: <span className="font-mono">{octave}</span>
           </div>
           <div className="text-sm text-neutral-300 min-h-5">
-            {held.length > 0 ? (
+            {playingDisplay.length > 0 ? (
               <>
-                playing: <span className="font-mono">{held.map(midiToName).join(' ')}</span>
+                playing:{' '}
+                <span className="font-mono">{playingDisplay.map(midiToName).join(' ')}</span>
               </>
             ) : (
               <span className="text-neutral-500">silent</span>
