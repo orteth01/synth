@@ -16,6 +16,7 @@ export type Waveshape = 'saw' | 'square' | 'triangle' | 'pulse'
 export type OscIndex = 0 | 1 | 2
 
 export interface OscSettings {
+  enabled: boolean
   waveshape: Waveshape
   coarse: number
   fine: number
@@ -179,9 +180,12 @@ export class Engine {
     if (!this.node || !this.ctx) return
     const t = this.ctx.currentTime
     const i = index + 1
+    const effectiveLevel = s.enabled ? s.level : 0
     this.node.parameters.get(`osc${i}Coarse`)?.setValueAtTime(s.coarse, t)
     this.node.parameters.get(`osc${i}Fine`)?.setValueAtTime(s.fine, t)
-    this.node.parameters.get(`osc${i}Level`)?.setTargetAtTime(s.level, t, PARAM_SMOOTH_S)
+    this.node.parameters
+      .get(`osc${i}Level`)
+      ?.setTargetAtTime(effectiveLevel, t, PARAM_SMOOTH_S)
     this.node.port.postMessage({ type: 'setWave', osc: index, wave: s.waveshape })
   }
 

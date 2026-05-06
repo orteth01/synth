@@ -48,9 +48,9 @@ function formatSigned(v: number): string {
 }
 
 const NEUTRAL_OSCS: OscSettings[] = [
-  { waveshape: 'saw', coarse: 0, fine: 0, level: 0.7 },
-  { waveshape: 'saw', coarse: 0, fine: -7, level: 0.5 },
-  { waveshape: 'square', coarse: -12, fine: 0, level: 0.3 },
+  { enabled: true, waveshape: 'saw', coarse: 0, fine: 0, level: 0.7 },
+  { enabled: true, waveshape: 'saw', coarse: 0, fine: -7, level: 0.5 },
+  { enabled: true, waveshape: 'square', coarse: -12, fine: 0, level: 0.3 },
 ]
 
 const NEUTRAL_AMP: AmpEnvelope = {

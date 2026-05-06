@@ -40,9 +40,18 @@ export function loadUserPresets(storage: Storage = safeLocalStorage()): Preset[]
     const parsed = JSON.parse(raw) as Partial<StoredPresets>
     if (parsed.version !== PRESET_VERSION) return []
     if (!Array.isArray(parsed.presets)) return []
-    return parsed.presets.filter(isValidPreset)
+    return parsed.presets.filter(isValidPreset).map(migratePreset)
   } catch {
     return []
+  }
+}
+
+// Backward-fill optional fields on older v1 presets so consumers can rely on the
+// shape. Per AGENTS.md: optional additions are allowed within a version.
+function migratePreset(p: Preset): Preset {
+  return {
+    ...p,
+    oscs: p.oscs.map((o) => ({ ...o, enabled: o.enabled ?? true })),
   }
 }
 
@@ -79,6 +88,8 @@ function isOscArray(v: unknown): v is OscSettings[] {
     if (typeof x.coarse !== 'number') return false
     if (typeof x.fine !== 'number') return false
     if (typeof x.level !== 'number') return false
+    // `enabled` is optional in older v1 presets; migratePreset fills it in.
+    if (x.enabled !== undefined && typeof x.enabled !== 'boolean') return false
   }
   return true
 }
@@ -126,9 +137,9 @@ export const FACTORY_PRESETS: ReadonlyArray<Preset> = [
     version: PRESET_VERSION,
     name: 'Moog Bass',
     oscs: [
-      { waveshape: 'saw', coarse: 0, fine: 0, level: 0.85 },
-      { waveshape: 'saw', coarse: 0, fine: -7, level: 0.4 },
-      { waveshape: 'square', coarse: -12, fine: 0, level: 0.35 },
+      { enabled: true, waveshape: 'saw', coarse: 0, fine: 0, level: 0.85 },
+      { enabled: true, waveshape: 'saw', coarse: 0, fine: -7, level: 0.4 },
+      { enabled: true, waveshape: 'square', coarse: -12, fine: 0, level: 0.35 },
     ],
     amp: { attackS: 0.001, decayS: 0.3, sustain: 0.55, releaseS: 0.12 },
     filter: { cutoffHz: 240, resonance: 0.55 },
@@ -140,9 +151,9 @@ export const FACTORY_PRESETS: ReadonlyArray<Preset> = [
     version: PRESET_VERSION,
     name: 'Bright Lead',
     oscs: [
-      { waveshape: 'saw', coarse: 0, fine: 0, level: 0.7 },
-      { waveshape: 'saw', coarse: 0, fine: 8, level: 0.5 },
-      { waveshape: 'pulse', coarse: 0, fine: -3, level: 0.4 },
+      { enabled: true, waveshape: 'saw', coarse: 0, fine: 0, level: 0.7 },
+      { enabled: true, waveshape: 'saw', coarse: 0, fine: 8, level: 0.5 },
+      { enabled: true, waveshape: 'pulse', coarse: 0, fine: -3, level: 0.4 },
     ],
     amp: { attackS: 0.005, decayS: 0.25, sustain: 0.7, releaseS: 0.12 },
     filter: { cutoffHz: 2400, resonance: 0.3 },
@@ -154,9 +165,9 @@ export const FACTORY_PRESETS: ReadonlyArray<Preset> = [
     version: PRESET_VERSION,
     name: 'Lush Pad',
     oscs: [
-      { waveshape: 'saw', coarse: 0, fine: 0, level: 0.6 },
-      { waveshape: 'saw', coarse: 0, fine: 11, level: 0.55 },
-      { waveshape: 'triangle', coarse: -7, fine: 0, level: 0.4 },
+      { enabled: true, waveshape: 'saw', coarse: 0, fine: 0, level: 0.6 },
+      { enabled: true, waveshape: 'saw', coarse: 0, fine: 11, level: 0.55 },
+      { enabled: true, waveshape: 'triangle', coarse: -7, fine: 0, level: 0.4 },
     ],
     amp: { attackS: 1.2, decayS: 1, sustain: 0.75, releaseS: 1.8 },
     filter: { cutoffHz: 1300, resonance: 0.18 },
@@ -168,9 +179,9 @@ export const FACTORY_PRESETS: ReadonlyArray<Preset> = [
     version: PRESET_VERSION,
     name: 'S&H Wobble',
     oscs: [
-      { waveshape: 'square', coarse: 0, fine: 0, level: 0.7 },
-      { waveshape: 'saw', coarse: -12, fine: 0, level: 0.4 },
-      { waveshape: 'saw', coarse: 0, fine: 7, level: 0 },
+      { enabled: true, waveshape: 'square', coarse: 0, fine: 0, level: 0.7 },
+      { enabled: true, waveshape: 'saw', coarse: -12, fine: 0, level: 0.4 },
+      { enabled: false, waveshape: 'saw', coarse: 0, fine: 7, level: 0 },
     ],
     amp: { attackS: 0.002, decayS: 0.4, sustain: 0.7, releaseS: 0.3 },
     filter: { cutoffHz: 350, resonance: 0.7 },

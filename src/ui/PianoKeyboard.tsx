@@ -97,6 +97,22 @@ export function PianoKeyboard({ startMidi, octaves, held, onNoteOn, onNoteOff }:
           />
         )
       })}
+      {whiteKeys
+        .filter((k) => k.midi % 12 === 0)
+        .map((k) => (
+          <text
+            key={`l:${k.midi}`}
+            x={k.x + KEY_W / 2}
+            y={KEY_H - 3}
+            textAnchor="middle"
+            fontSize={4}
+            fontFamily="ui-monospace, Menlo, monospace"
+            fill="#52525b"
+            pointerEvents="none"
+          >
+            C{Math.floor(k.midi / 12) - 1}
+          </text>
+        ))}
       {blackKeys.map((k) => {
         const active = held.has(k.midi)
         return (
