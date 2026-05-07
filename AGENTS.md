@@ -181,7 +181,17 @@ When changing the preset shape:
 Factory preset names are reserved — UI prevents users from saving over
 them.
 
-### 9. Tauri JS plugin code is dynamically imported
+### 9. Asset URLs use `import.meta.env.BASE_URL`
+
+The worklet is loaded via
+`` `${import.meta.env.BASE_URL}worklets/voice.worklet.js` `` so it works
+both at root (`/`) and at a subpath like GitHub Pages's `/synth/`.
+Don't hardcode `/worklets/...` — it'll 404 on hosted builds.
+
+`vite.config.ts` reads `process.env.BASE_PATH` (default `/`); the GitHub
+Pages workflow passes `/synth/`. Tauri keeps the default `/`.
+
+### 10. Tauri JS plugin code is dynamically imported
 
 `@tauri-apps/plugin-fs` is only `await import()`-ed inside
 `TauriPresetStorage`, so Vite emits it as a separate chunk and web

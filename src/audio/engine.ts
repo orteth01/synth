@@ -1,6 +1,7 @@
 import { VoiceAllocator } from './voice-allocator'
 
-const WORKLET_URL = '/worklets/voice.worklet.js'
+// Vite's BASE_URL always ends with a slash; the literal joins with no extra one.
+const WORKLET_URL = `${import.meta.env.BASE_URL}worklets/voice.worklet.js`
 const PROCESSOR_NAME = 'voice'
 const MAX_VOICES = 8
 const PARAM_SMOOTH_S = 0.005

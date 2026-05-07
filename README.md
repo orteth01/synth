@@ -19,6 +19,19 @@ pnpm dev          # http://localhost:5173
 Open the app, click anywhere to enable audio, then play with the on-screen
 piano, your computer keyboard, or any connected MIDI device.
 
+### Hosted build
+
+`.github/workflows/deploy.yml` ships the web build to GitHub Pages on
+every push to `main`. To enable on a fresh fork:
+
+1. **Settings → Pages → Source**: select **GitHub Actions**.
+2. Push to `main`. The workflow runs typecheck, unit tests, build, then
+   publishes `dist/` at `https://<user>.github.io/<repo>/`.
+
+The build sets `BASE_PATH=/synth/`; `vite.config.ts` reads it for the
+asset base. Locally, `pnpm build` keeps the default `/`. If you fork
+under a different repo name, change `BASE_PATH` in the workflow.
+
 ### Desktop
 
 The desktop shell uses [Tauri 2](https://tauri.app/) and requires the
